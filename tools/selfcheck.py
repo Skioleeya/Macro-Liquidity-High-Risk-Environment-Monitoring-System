@@ -21,33 +21,10 @@ from L0_基元层.config import ConfigError, get_secret, load_sources, raw_dir, 
 from L0_基元层.units import UnitError, convert, registered
 from L1_接入层.derive.net_liquidity import SIGN_MINUS, SIGN_PLUS, net_liquidity
 from L1_接入层.sources import fred
+from tools.checkkit import CheckKit
 
 # 假密钥：只用于验证擦除是否生效，不对应任何真实凭据。
 FAKE_SECRET = "deadbeefcafe1234deadbeefcafe1234"
-
-_RESULTS: list[tuple[bool, str, str]] = []
-
-
-def check(name: str, fn) -> None:
-    try:
-        detail = fn()
-    except Exception as exc:  # noqa: BLE001 - 检查器要吞掉一切异常并记为 FAIL
-        _RESULTS.append((False, name, f"{type(exc).__name__}: {exc}"))
-    else:
-        _RESULTS.append((True, name, str(detail or "")))
-
-
-def _harness_selftest() -> str:
-    """证明检查器不是空转：故意做坏的用例必须被记为 FAIL。"""
-    saved = list(_RESULTS)
-    _RESULTS.clear()
-    check("__故意做坏__", lambda: 1 / 0)
-    reported_red = len(_RESULTS) == 1 and _RESULTS[0][0] is False
-    _RESULTS.clear()
-    _RESULTS.extend(saved)
-    if not reported_red:
-        raise RuntimeError("检查器空转：故意做坏的用例没有被记为 FAIL")
-    return "故意做坏的用例已被正确记为 FAIL"
 
 
 def _declared_units(sources: dict) -> dict[str, str]:
@@ -83,10 +60,11 @@ def main() -> int:
 
     sources = load_sources()
     declared = _declared_units(sources)
+    kit = CheckKit("单位自检")
 
     print("=== 单位自检 ===")
 
-    check("检查器非空转自测", _harness_selftest)
+    kit.check("检查器非空转自测", kit.selftest)
 
     def units_registered() -> str:
         known = registered()
@@ -95,7 +73,7 @@ def main() -> int:
             raise UnitError(f"配置声明了未登记的单位：{unknown}")
         return f"{len(declared)} 处声明全部已登记（共 {len(known)} 个可用令牌）"
 
-    check("配置声明的单位都已登记", units_registered)
+    kit.check("配置声明的单位都已登记", units_registered)
 
     def within_family() -> str:
         got = convert(1, "USD_BILLION", "USD_MILLION")
@@ -106,7 +84,7 @@ def main() -> int:
             raise AssertionError(f"往返换算应回到 1，得到 {back}")
         return "1 USD_BILLION -> 1000 USD_MILLION -> 1 USD_BILLION"
 
-    check("族内换算与往返一致", within_family)
+    kit.check("族内换算与往返一致", within_family)
 
     def cross_family_rejected() -> str:
         for src, dst in [("USD_MILLION", "PERCENT"), ("INDEX_POINT", "USD_BILLION")]:
@@ -117,7 +95,7 @@ def main() -> int:
             raise AssertionError(f"跨族换算 {src} -> {dst} 竟然通过了")
         return "USD_MILLION->PERCENT、INDEX_POINT->USD_BILLION 均被拒绝"
 
-    check("跨族换算必须被拒绝", cross_family_rejected)
+    kit.check("跨族换算必须被拒绝", cross_family_rejected)
 
     def unknown_rejected() -> str:
         try:
@@ -126,7 +104,7 @@ def main() -> int:
             return "未登记令牌 USD_SQUILLION 被拒绝"
         raise AssertionError("未登记的单位令牌竟然通过了")
 
-    check("未登记单位必须被拒绝", unknown_rejected)
+    kit.check("未登记单位必须被拒绝", unknown_rejected)
 
     if args.skip_network:
         print("（已跳过联网检查：FRED 权威单位对账）")
@@ -148,7 +126,7 @@ def main() -> int:
                 raise AssertionError("；".join(mismatches))
             return f"{len(sources['fred']['series'])} 个 FRED 序列与权威 units_short 一致"
 
-        check("配置单位 vs FRED 权威单位", fred_units_agree)
+        kit.check("配置单位 vs FRED 权威单位", fred_units_agree)
 
     def whitepaper_formula() -> str:
         directory = _latest_raw()
@@ -176,7 +154,7 @@ def main() -> int:
             f"差 {gap:,.1f}（当前占 {ratio:.4f}%）"
         )
 
-    check("白皮书净值公式的换算差异可见", whitepaper_formula)
+    kit.check("白皮书净值公式的换算差异可见", whitepaper_formula)
 
     def net_layer_hides_secret() -> str:
         """带对照组的脱敏检查：不传 secrets 时必须能看见密钥，传了必须看不见。"""
@@ -212,7 +190,7 @@ def main() -> int:
     if args.skip_network:
         print("（已跳过联网检查：net 层报错脱敏）")
     else:
-        check("net 层报错不泄漏密钥（带对照组）", net_layer_hides_secret)
+        kit.check("net 层报错不泄漏密钥（带对照组）", net_layer_hides_secret)
 
     def boundary_redact() -> str:
         env_name = sources["fred"]["api_key_env"]
@@ -227,13 +205,9 @@ def main() -> int:
             raise AssertionError("redact() 没有改变文本，疑似空转")
         return "输出边界的兜底擦除生效"
 
-    check("输出边界兜底擦除生效", boundary_redact)
+    kit.check("输出边界兜底擦除生效", boundary_redact)
 
-    failed = [item for item in _RESULTS if not item[0]]
-    for ok, name, detail in _RESULTS:
-        print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + (f"  —— {redact(detail)}" if detail else ""))
-    print(f"\n执行 {len(_RESULTS)} 项检查，通过 {len(_RESULTS) - len(failed)} 项")
-    return 1 if failed else 0
+    return kit.report(redact=redact)
 
 
 if __name__ == "__main__":

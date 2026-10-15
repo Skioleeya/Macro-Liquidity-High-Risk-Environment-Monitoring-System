@@ -7,7 +7,8 @@ LAST_UPDATED: 2026-10-15
 
 ## 当前状态指针
 
-- 阶段：正式分层目录已落地 + L0/L1 已迁入并验证；**L2–L7 与重放骨架未开始**。
+- 阶段：正式分层目录已落地 + L0/L1/L2 可用；**L3–L7 与重放骨架未开始**。
+- 数据流已打通：`data/raw/<date>/` → L1 `Observation` → L2 `Panel` → `data/panel/panel_<date>.csv`。
 - 版本控制：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`（公开）。
   ⚠️ 本环境每次推进式 push 后 `origin/main` 会**静默陈旧**，`git status` 谎报 `[ahead N]` ——
   远端其实是对的，**不要重推/不要 --force**。**推送一律用 `git psh`（本机仓库 alias，已合成"推送+修引用"）**；
@@ -28,9 +29,10 @@ LAST_UPDATED: 2026-10-15
 | 白皮书拆解结论与缺陷清单 | `docs/CRS-100_白皮书摘要与要点总结.md` |
 | 数据源账户需求与端点实测 | `docs/数据源接入清单_账户与端点核查.md` |
 | 外部建议裁定与理由 | `docs/Gemini建议评估_以实测为准.md` |
-| 可运行代码（正式） | `L0_基元层/` · `L1_接入层/` |
-| 驱动 / 自检 / 分层校验 | `tools/`（非分层；`fetch_all.py` · `selfcheck.py` · `check_layering.py`） |
+| 可运行代码（正式） | `L0_基元层/` · `L1_接入层/` · `L2_归一化层/` |
+| 驱动 / 自检 / 分层校验 | `tools/`（非分层；`fetch_all` · `build_panel` · `selfcheck` · `selfcheck_l2` · `check_layering` · `checkkit` · `l2_e2e_check`） |
 | 数据源结构常量（端点 / 序列 / 单位） | `config/sources.toml` |
+| 归一化结构常量（填充策略 / 目标单位 / 新鲜度 / 日历规则） | `config/normalization.toml` |
 | MVP 参照实现（**已裁定保留，冻结勿改**） | `mvp/` |
 | 会话记录该怎么写 | skill `notes-session-records` |
 | 回归是否在空转 | skill `harness-silent-pass-audit` |
@@ -40,7 +42,13 @@ LAST_UPDATED: 2026-10-15
 ## 项目级约定（仅指针，条文不在此处）
 
 - 工程约束（文件 < 400 行、单一职能、禁止硬编码、严格分层、配置互不引用）继承用户级 `~/.workbuddy-ai/MEMORY.md`，本项目不重复。
-- 本项目的机械校验：`python -m tools.check_layering`（层级单向依赖）、`python -m tools.selfcheck`（单位 + 脱敏，9 项，含对照组与变异自测）。**均在仓库根目录执行。**
+- 本项目的机械校验（**均在仓库根目录执行**）：
+  `python -m tools.check_layering`（层级单向依赖 + 层内例外声明的双向校验）、
+  `python -m tools.selfcheck`（单位 + 脱敏，9 项，含对照组）、
+  `python -m tools.selfcheck_l2`（L2 归一化，11 项，每类含反证）、
+  `python -m tools.build_panel`（端到端出面板）。
+- 层内 import 例外**只能显式声明**在 `tools/check_layering.py` 的 `SHARED_MODULES` / `ORCHESTRATORS` 里，
+  且声明本身被机械校验（声明不实即报 FAIL）。当前：L1 `{contract}`；L2 `{settings, contract}` + 编排 `{pipeline}`。
 - git 提交身份为**仓库级**：`Skioleeya` / `Skioleeya@users.noreply.github.com`（刻意不用真实邮箱，因为远端是公开仓库）。
 
 

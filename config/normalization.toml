@@ -1,0 +1,194 @@
+# L2 归一化层配置：填充策略、目标单位、新鲜度上限、交易日历规则、面板落盘位置。
+#
+# 本文件与 sources.toml **彼此独立**，不得互相引用（禁止 $ref / include / extends）。
+# 这里只放"归一化怎么归一"，不放"去哪取数"。
+#
+# series_key 约定：`<source>:<配置键>`
+#   fred:walcl            来自 sources.toml 的 [fred.series.walcl]
+#   cboe:total            来自 [cboe.ratios.labels] 的 total
+#   cboe:vix              来自 index_csv_files 的 VIX_History.csv（去 _History.csv 并小写）
+#   yahoo:^GSPC           来自 [yahoo.symbols] 的 "^GSPC"
+# 这个约定是机械的 —— 靠它才能自动查"有没有序列被漏掉"（见 tools/selfcheck_l2.py）。
+# 该约定的**唯一实现**在 L1_接入层/observations.py 的 series_key_* 函数里，此处不重复定义。
+
+[align]
+# 频率对齐策略。**目前只支持 forward_fill**；写别的值直接报错，不做静默兜底。
+# 填充点一律打 fill_flag，且 source_as_of 保留真实数据日 —— 下游能看出哪些是填充。
+policy = "forward_fill"
+
+[panel]
+dir = "data/panel"
+# 每个序列至少要有的**真实观测**条数（即 fill_flag=false 的行数）。
+#
+# 为什么是"真实观测"而不是"总行数"：前向填充会把任何一条真实观测复制成很多行，
+# 所以"总行数"几乎恒等于时间轴长度，起不到门禁作用。真正要防的是
+# "某个源悄悄只回了一两条、或整列都是填充值，面板看起来建成了其实没有数据"。
+#
+# 为什么是 3：下游算任何一次差值至少需要 2 条真实观测，取 3 是留一条余量。
+# 实测各源真实观测条数下限为 4（yahoo:CL=F / yahoo:DX-Y.NYB，range=5d）。
+min_real_observations = 3
+
+[series."fred:walcl"]
+target_unit = "USD_MILLION"
+max_staleness_trading_days = 14
+
+[series."fred:wtregon"]
+target_unit = "USD_MILLION"
+max_staleness_trading_days = 14
+
+[series."fred:rrpontsyd"]
+target_unit = "USD_MILLION"
+max_staleness_trading_days = 5
+
+[series."fred:hy_oas"]
+target_unit = "PERCENT"
+max_staleness_trading_days = 7
+
+[series."fred:usdjpy"]
+target_unit = "JPY_PER_USD"
+max_staleness_trading_days = 7
+
+[series."cboe:vix"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."cboe:vix9d"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."cboe:vix3m"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."yahoo:^GSPC"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."yahoo:^VIX"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."yahoo:^VIX9D"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."yahoo:^VIX3M"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."yahoo:DX-Y.NYB"]
+target_unit = "INDEX_POINT"
+max_staleness_trading_days = 5
+
+[series."yahoo:^TNX"]
+target_unit = "PERCENT"
+max_staleness_trading_days = 5
+
+[series."yahoo:CL=F"]
+target_unit = "USD_PER_BARREL"
+max_staleness_trading_days = 5
+
+# 已声明但**尚未**进面板的序列，必须逐条给出原因。
+# 这个表的存在意义：让"漏掉一个序列"变成**报错**，而不是悄悄少几列。
+# tools/selfcheck_l2.py 会机械核对 sources.toml 声明的序列是否都落在这里或 [series.*] 里。
+[pending]
+"cboe:total" = "CBOE PCR 页面只有单日快照；逐日回溯需 N 次请求，本轮未做（见 OPEN-RISKS）"
+"cboe:equity" = "同上"
+"cboe:index" = "同上"
+
+# ---------------------------------------------------------------------------
+# NYSE 交易日历规则。
+#
+# 这里放的是**数据**（交易所会增删规则、会临时休市），所以它属于配置而不是 L0 代码。
+# L0_基元层/clock.py 只提供求值这些规则所需的纯日期算术。
+#
+# kind 取值：
+#   fixed          月/日固定，observed=true 时套用"周六提前到周五、周日顺延到周一"
+#   nth            某月第 n 个星期几
+#   last           某月最后一个星期几
+#   easter_offset  相对复活节的偏移天数（耶稣受难日 = -2）
+# 可选 from_year：规则从哪一年开始生效（不写 = 一直生效）。
+# 可选 saturday_shift（仅对 observed=true 的 fixed 有意义，默认 true）：
+#   false 表示"落在周六时**不**观察"，即不把休市挪到周五。
+# ---------------------------------------------------------------------------
+
+[calendar]
+exchange = "NYSE"
+
+[[calendar.rules]]
+name = "New Year's Day"
+kind = "fixed"
+month = 1
+day = 1
+observed = true
+# 特例：1 月 1 日落在周六时 NYSE **不**提前到 12 月 31 日（那天照常开市）。
+# 例：2022-01-01 是周六，2021-12-31 周五正常交易。
+saturday_shift = false
+
+[[calendar.rules]]
+name = "Martin Luther King Jr. Day"
+kind = "nth"
+month = 1
+weekday = "MON"
+n = 3
+
+[[calendar.rules]]
+name = "Washington's Birthday"
+kind = "nth"
+month = 2
+weekday = "MON"
+n = 3
+
+[[calendar.rules]]
+name = "Good Friday"
+kind = "easter_offset"
+offset_days = -2
+
+[[calendar.rules]]
+name = "Memorial Day"
+kind = "last"
+month = 5
+weekday = "MON"
+
+[[calendar.rules]]
+name = "Juneteenth National Independence Day"
+kind = "fixed"
+month = 6
+day = 19
+observed = true
+# NYSE 自 2022 年起才开始休市；2021 年 6 月 18 日（周五）照常交易。
+from_year = 2022
+
+[[calendar.rules]]
+name = "Independence Day"
+kind = "fixed"
+month = 7
+day = 4
+observed = true
+
+[[calendar.rules]]
+name = "Labor Day"
+kind = "nth"
+month = 9
+weekday = "MON"
+n = 1
+
+[[calendar.rules]]
+name = "Thanksgiving Day"
+kind = "nth"
+month = 11
+weekday = "THU"
+n = 4
+
+[[calendar.rules]]
+name = "Christmas Day"
+kind = "fixed"
+month = 12
+day = 25
+observed = true
+
+# 临时休市（不规则，无法用规则推，必须逐条列）。
+# 存在的意义：让"当年临时休市"有地方写，而不是事后改代码。
+[[calendar.adhoc]]
+date = "2025-01-09"
+reason = "National Day of Mourning for President Jimmy Carter（NYSE 当日休市）"

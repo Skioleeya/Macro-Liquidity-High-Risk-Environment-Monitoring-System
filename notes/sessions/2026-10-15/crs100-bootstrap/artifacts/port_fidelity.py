@@ -53,6 +53,23 @@ ALLOWED_FUNC_DIFFS: dict[tuple[str, str], str] = {
     ("src/config.py", "raw_dir"): "根锚点改名 MVP_ROOT -> REPO_ROOT（新目录深度恰好仍是上两级）",
     ("src/fetch_all.py", "main"): "面向用户的描述串与横幅去掉 'MVP' 字样",
     ("src/units_selfcheck.py", "_latest_raw"): "错误提示里的命令名 src.fetch_all -> tools.fetch_all",
+    ("src/units_selfcheck.py", "main"): (
+        "会话 2026-10-15/l2-normalization：末尾的打印/退出码改为委托 CheckKit.report()，"
+        "检查项本身与执行顺序未变（实测仍 9/9 通过）"
+    ),
+}
+
+# 迁移之后**有意**发生演化的模块（每处必须给出理由与出处）。
+#
+# 声明为演化的模块：函数**集合**允许变化（增删函数）；但同名函数仍逐一比对，
+# 差异仍必须落在 ALLOWED_FUNC_DIFFS 里 —— 演化只放宽"增删"，不放宽"偷改"。
+# 反向也校验：声明了演化却查不出集合变化，视为声明过期，报 FAIL。
+EVOLVED_MODULES: dict[str, str] = {
+    "src/units_selfcheck.py": (
+        "会话 2026-10-15/l2-normalization：检查骨架 check() 与空转自测 _harness_selftest() "
+        "抽到 tools/checkkit.py，供 selfcheck 与 selfcheck_l2 共用（避免两套实现各自腐化）。"
+        "B 层行为比对不涉及本文件，625 组仍全等。"
+    ),
 }
 
 FAILURES: list[str] = []
@@ -99,13 +116,17 @@ def compare_structure() -> None:
             fail(f"缺少文件：{old_rel} 或 {new_rel}")
             continue
         old_fns, new_fns = functions_of(old_path), functions_of(new_path)
-        if set(old_fns) != set(new_fns):
+        set_diff = set(old_fns) ^ set(new_fns)
+        if set_diff and old_rel not in EVOLVED_MODULES:
             fail(
                 f"{old_rel}: 函数集合不一致 —— 仅旧有 {sorted(set(old_fns) - set(new_fns))}，"
                 f"仅新有 {sorted(set(new_fns) - set(old_fns))}"
             )
-            continue
-        for name in old_fns:
+        elif not set_diff and old_rel in EVOLVED_MODULES:
+            fail(f"{old_rel}: 已声明为演化模块，但函数集合与参照实现完全一致（声明已过期）")
+        # 同名函数一律逐一比对 —— 即使模块声明为演化，也不放过"偷改"。
+        # 这里刻意不 continue：一旦 continue，本模块已申报的差异会全部被误报成"白名单过期"。
+        for name in sorted(set(old_fns) & set(new_fns)):
             if old_fns[name] != new_fns[name]:
                 seen_diffs.add((old_rel, name))
 
@@ -120,11 +141,15 @@ def compare_structure() -> None:
 
     if not unexpected and not missing:
         ok(
-            f"{len(PAIRS)} 个模块的全部函数已逐一比对；"
-            f"差异 {len(seen_diffs)} 处，全部在白名单内："
+            f"{len(PAIRS)} 个模块的共有函数已逐一比对；"
+            f"函数体差异 {len(seen_diffs)} 处，全部在白名单内："
         )
         for (mod, fn), reason in sorted(ALLOWED_FUNC_DIFFS.items()):
             print(f"         - {mod}::{fn}() —— {reason}")
+        if EVOLVED_MODULES:
+            print(f"   已声明的演化模块 {len(EVOLVED_MODULES)} 个（函数集合允许增删，同名函数仍比对）：")
+            for mod, reason in sorted(EVOLVED_MODULES.items()):
+                print(f"         - {mod} —— {reason}")
 
     print("   模块级语句形态（仅供参考，不参与判定）：")
     for old_rel, new_rel in PAIRS:
