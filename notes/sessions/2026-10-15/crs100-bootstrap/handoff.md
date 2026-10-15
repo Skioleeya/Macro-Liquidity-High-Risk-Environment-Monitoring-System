@@ -11,7 +11,7 @@ STARTUP-PROOF: N/A:本会话产出早于 notes/ 建立，改动前无法捕获�
 
 把一份**技术规格书**（非商业计划书）转成可开工的分层工程方案；过程中用实测**推翻或确认了白皮书的三处关键假设**，并跑通了 L0/L1 的最小闭环。
 
-## 本会话做了什么（六个阶段）
+## 本会话做了什么（七个阶段）
 
 1. **白皮书拆解** —— 提炼核心目标 / 目标用户 / 功能模块 / 商业模式 / 竞争优势 / 风险。判定文档性质为技术规格书；**商业模式、用户画像、竞争分析、验证证据四项缺失**。
 2. **数据源账户与端点核查** —— 全部结论附真实 HTTP 探测。结论：**只需注册 FRED 一个账户**。
@@ -21,6 +21,8 @@ STARTUP-PROOF: N/A:本会话产出早于 notes/ 建立，改动前无法捕获�
 6. **MVP → 正式分层目录迁移** —— 建 `L0_基元层` … `L7_输出层` + `tools/` + `config/`，
    把 MVP 已实现的 L0/L1 逻辑完整搬入，并加 `tools/check_layering.py` 机械校验单向依赖。
    迁移保真性用"AST 逐函数比对 + 625 组差分行为比对"证明（见下）。
+7. **初始化远端并首次推送** —— `git init -b main` + 挂 `origin`（SSH）+ 首条提交 + push。
+   过程中踩到本环境的 **git 跟踪引用静默失效**（详见下），已定位根因并修复 + 验证耐久。
 
 ## 实测推翻/确认的三处白皮书假设
 
@@ -213,6 +215,113 @@ MUTATION-3  在 L1_接入层/sources/fred.py 加一行 `from ..sources import cb
 **行数门禁**：19 个 .py 全部 < 400 行（最大 `tools/selfcheck.py` 240 行）。
 **字节编译**：`python -m compileall` 对 8 个层目录 + tools/ → RC=0。
 
+### 阶段 7 命令证据：初始化远端
+
+```
+$ ssh -T git@github.com
+  Hi Skioleeya! You've successfully authenticated, but GitHub does not provide shell access.
+  → RC=1（GitHub 正常行为：无 shell 访问，退出码就是 1，不代表失败）
+
+$ git ls-remote git@github.com:Skioleeya/Macro-Liquidity-...-System.git
+  （无输出）→ RC=0  ⇒ 仓库存在且**为空**，无冲突风险
+
+$ curl -s -D - -o /dev/null https://github.com/Skioleeya/Macro-Liquidity-...
+  HTTP/1.1 200 OK（经代理 CONNECT 后）
+  → 该仓库是**公开**的 ⇒ 提交邮箱会公开可见，故改用 GitHub 匿名邮箱
+
+$ git init -b main                       → Initialized empty Git repository
+$ git remote add origin git@github.com:Skioleeya/Macro-Liquidity-...-System.git
+  origin  git@github.com:Skioleeya/Macro-Liquidity-...-System.git (fetch/push)
+
+$ 提交前的密钥核查（关键）
+  git check-ignore -q .env                              → 被忽略 ✓
+  git check-ignore -q mvp/.env                          → 被忽略 ✓
+  git check-ignore -q data/raw/.../fred_walcl.json       → 被忽略 ✓
+  git check-ignore -q mvp/data/raw/.../fred_walcl.json   → 被忽略 ✓
+  暂存清单 grep -E "(^|/)\.env$|^data/|/data/"           → 无命中 ✓
+  git diff --cached | grep -F "<真实 FRED key>"          → 无命中 ✓
+  git ls-files | grep -E "\.env$|^data/"                 → 无命中 ✓（提交后复验）
+
+$ git commit -F - ...   （作者 Skioleeya <Skioleeya@users.noreply.github.com>）
+  52 files changed, 3837 insertions(+)
+  sha=20f9734  branch=main
+
+$ git push -u origin main
+  * [new branch]      main -> main
+  branch 'main' set up to track 'origin/main'.          → RC=0
+```
+
+### 阶段 7 踩坑：git 跟踪引用静默失效（本环境固有）
+
+**症状**：push 打印成功，`git ls-remote` 与本地 `HEAD` 一致，但
+`git status --short --branch` 显示 `## main...origin/main [gone]`，
+`git rev-parse origin/main` 直接 `fatal: ambiguous argument`。
+
+**诊断链（逐层排除，全部实跑）**：
+
+```
+第一步  远端对不对
+  HEAD        20f9734c68c6eb8aa7831d633e27d1f8c0078461
+  ls-remote   20f9734c68c6eb8aa7831d633e27d1f8c0078461     ⇒ 相等，远端是好的
+
+第二步  引用存储长什么样
+  git for-each-ref refs/remotes/origin  → 空
+  find .git/refs → 只有 heads/main，refs/remotes/ 是空目录
+  .git/packed-refs → 不存在
+  branch.main.remote=origin / merge=refs/heads/main → 配置本身是对的
+
+第三步  分层对照，定位是"权限"还是"建不了目录"
+  refs/heads/zzz            [落盘 OK]
+  refs/remotes/aaa          [落盘 OK]        ← 一级
+  refs/xyz/aaa              [落盘 OK]        ← git 新建一级目录也 OK
+  refs/remotes/zzz/aaa      [被吞掉!!]       ← 二级子目录
+  refs/tags/yyy/aaa         [被吞掉!!]       ← 二级子目录
+  ⇒ "二层全失败、一层全成功"
+
+  顺手排除权限：icacls .git\refs\remotes 与 .git\refs\heads 的 ACE **逐条相同**
+  ⇒ 不是权限差异，是本环境拦了 git 在 .git/refs/ 下建二级子目录
+  （bash 的 mkdir -p 能建，git 不能 —— 所以修复要借 bash）
+```
+
+**修复（顺序不能反）**：
+
+```
+$ SHA=$(git rev-parse HEAD)
+$ mkdir -p .git/refs/remotes/origin
+$ printf '%s\n' "$SHA" > .git/refs/remotes/origin/main    # 先写松散引用
+$ git pack-refs --all                                      # 再打包
+$ head -1 .git/packed-refs
+  # pack-refs with: peeled fully-peeled sorted              ← 头行在，是 git 写的
+$ grep -v '^#' .git/packed-refs
+  20f9734c... refs/heads/main
+  20f9734c... refs/remotes/origin/main
+$ git status --short --branch
+  ## main...origin/main                                     ← 无 ahead/behind，修复生效
+```
+
+**耐久性实测**（这一条纠正了 skill 原文的过度悲观表述）：
+
+```
+$ git -c gc.auto=0 fetch origin        → RC=0
+  origin/main -> 20f9734c...            ← 存活
+$ git -c gc.auto=0 push origin main    → Everything up-to-date
+  origin/main -> 20f9734c...            ← 存活
+$ 三方核对
+  HEAD        20f9734c68c6eb8aa7831d633e27d1f8c0078461
+  ls-remote   20f9734c68c6eb8aa7831d633e27d1f8c0078461
+  origin/main 20f9734c68c6eb8aa7831d633e27d1f8c0078461
+  git status  ## main...origin/main
+```
+
+⇒ **只写松散引用会被下次 push/fetch 删掉；走完 `pack-refs --all` 就不会。**
+`find .git/refs -type f` 返回空是正常的（引用全在 `packed-refs` 里），不是丢失。
+
+**未查明**：本环境为何拦 git 建 `.git/refs/` 下的二级子目录 —— 只能归因到运行环境
+（沙箱/受管运行时），**未在沙箱外复跑，不下结论**。
+**明确区分**：`pack-refs --all` 是**根治这一步**；本环境对 git 的这条限制本身没被修掉，
+只是绕开了。若将来又在**新仓库**里见到 `[gone]`，重跑上面的修复即可。
+
+
 ## VALIDATION-SUMMARY
 
 阶段 1–5（MVP 时期，命令在 `mvp/` 下执行；保留原样，不回填）：
@@ -233,6 +342,19 @@ MUTATION-3  在 L1_接入层/sources/fred.py 加一行 `from ..sources import cb
 - 变异反证 ×3（脱敏失效 / 换算系数错 / 同层 import）→ 目标检查全部 FAIL，RC=1；逐一还原后复跑 RC=0
 - 行数门禁 → 19 个 .py 全部 < 400 行；`compileall` → RC=0
 - N/A:无 git，无法用 `git diff` 证明"只改了申报的那几行"；替代证据为 AST 白名单比对 + 备份 diff
+
+阶段 7（初始化远端）：
+
+- `ssh -T git@github.com` → 认证成功（身份 `Skioleeya`）；RC=1 是 GitHub 的正常行为
+- `git ls-remote origin` → RC=0 且无输出 ⇒ 远端仓库存在且为空
+- 仓库可见性 HTTPS 探测 → `HTTP/1.1 200 OK` ⇒ **公开仓库**
+- `git init -b main` + `git remote add origin` → 成功
+- 提交前密钥核查 4 项（check-ignore ×4 + 暂存清单 grep + 暂存内容 grep）→ **全部无命中**
+- `git commit` → 52 文件 / 3837 行，sha `20f9734`，作者 `Skioleeya <Skioleeya@users.noreply.github.com>`
+- `git push -u origin main` → RC=0，`* [new branch] main -> main`
+- 提交后复验 `git ls-files | grep -E "\.env$|^data/"` → 无命中 ⇒ **密钥确认未进仓库**
+- git 跟踪引用修复 → `git status` 从 `[gone]` 变为 `## main...origin/main`
+- 修复耐久性 → 后续 `fetch` + 幂等 `push`（`Everything up-to-date`）后 `origin/main` 仍正确；三方 SHA 相等
 
 ## 追加工作流：外部建议评估（同日，同一会话）
 
@@ -279,6 +401,10 @@ notes/context/handoff.md
 - **迁移保真性已证明**：AST 逐函数比对（3 处差异全部申报）+ 625 组差分行为比对全等
 - **单向依赖已可机械校验**：`tools/check_layering.py`，含分析函数自测与真实违规反证
 - **命名收口**：`units_selfcheck` → `tools/selfcheck.py`（原 OPEN-RISKS #9 已关闭）
+- **git 仓库已初始化并推送**：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`，
+  `main` = `20f9734`，远端与本地一致（原 OPEN-RISKS #10 已关闭）
+- **确认密钥未进仓库**：`.env` / `mvp/.env` / `data/` 全部被忽略，提交前后各验一次
+- **git 跟踪引用失效已修复并验证耐久**（原症状 `[gone]`）
 
 ## OPEN-RISKS
 
@@ -295,21 +421,31 @@ notes/context/handoff.md
    切换会产生口径断点，需显式声明。填充语义与 Δ 定义节点待 L2 定。
 8. **Yahoo 非官方接口**，实测已出现 429 限流（未带 UA 时）。无 SLA、无兜底方案。
 9. ~~**自检脚本命名偏窄**~~ **已关闭**：`units_selfcheck` 已改名为 `tools/selfcheck.py`（阶段 6）。
-10. **未提交**：本仓库无 git，全部产出仅存于工作区。是否需要 `git init` 待 KAI 决定。
+10. ~~**未提交**~~ **已关闭**：仓库已 `git init`、挂 `origin`、首条提交 `20f9734` 已推送至 `main`（阶段 7）。
 11. **【新】信用维度若走"双轨制"（回测用 HYG/LQD 代理、实盘用 ICE OAS），
     回测结论不可直接迁移到实盘** —— 两条序列不是同一个量（代理还含久期错配）。
     必须在文档里显式声明这条边界，否则会拿代理的回测命中率给实盘阈值背书。
 12. **【新】阈值方案未定**：走"绝对阈值 + 滚动分位"混合，还是全量分位。
     全量分会丢失绝对水平信息、把参数问题搬到窗口长度上、且趋势 regime 下失效（详见评估文档第 4 节）。
-13. **【新】`mvp/` 的去留待 KAI 裁定 —— 不自行删除。** 现状：`mvp/` 与正式分层是**同一套逻辑的两份拷贝**，
-    直接违反"不制造重复真相"；但它同时是 `artifacts/port_fidelity.py` 的**唯一参照实现**，
-    且本仓库**无 git**，删掉不可恢复。
-    - 选项 A（推荐）：先 `git init` 并提交一版，再删 `mvp/`；此后保真审计脚本失效，
-      改为"提交点对提交点"的 git diff 作为新证据源。
-    - 选项 B：保留 `mvp/` 但移入 `notes/` 作为历史证据，并从可导入路径上排除。
-    - 选项 C：保留原地不动，接受重复真相（不推荐）。
+13. **【已推进】`mvp/` 的去留** —— 选项 A 的**前半步已完成**（阶段 7）：仓库已有 git，
+    `mvp/` 已随首条提交 `20f9734` 进入历史，**现在删掉也可从 git 恢复**。
+    剩下的裁定：是否现在就 `git rm -r mvp/` 再提交一次。
+    - 删除的代价：`artifacts/port_fidelity.py` 失去参照实现，会变成**不可运行的历史脚本**
+      （脚本已声明"mvp/ 不存在即无法对拍"）。替代证据源改为"提交点对提交点"的 `git diff`。
+    - 不删的代价：正式层与 `mvp/` 继续是同一套逻辑的两份拷贝，改一处忘另一处就会分叉。
+    - **不自行删除**，等 KAI 定。
 14. **【新】`tools/` 目前没有层级约束**。按设计它是横向驱动/校验脚本，允许依赖任意层；
     但它同时也是唯一能"绕过 L2 直接调 L1"的地方 —— 若将来把业务计算写进 `tools/`，
     单向依赖就名存实亡。`check_layering.py` 目前**显式排除** `tools/`，这是有意为之，不是漏检。
 15. **【新】L0 仍缺 `clock` / `log`**（架构文档第 3 节列出）。本阶段只迁移 MVP 已有逻辑，
     **没有**顺手实现未完成的东西 —— 时间基元（交易日/假期/第 N 个周五）是 L2 的前置，需在 L2 开工前补。
+16. **【新】本环境的 git 建不了 `.git/refs/` 下的二级子目录**（实测：一层全成功、二层全被吞）。
+    后果是**每个新仓库的首次 `push -u` 都会静默丢掉跟踪引用**（`[gone]`），
+    `git status` 从此说谎。已在本次修复并用 `pack-refs --all` 验证耐久，但**环境限制本身没被修掉**。
+    下次在新仓库里见到 `[gone]`，直接重跑修复流程，不要怀疑"没推上去"。
+    排查与修复全文见 skill `git-tracking-ref-stale`。
+17. **【新】`core.autocrlf=true`**（本机默认）。提交时 git 把 LF 存进仓库、检出时转 CRLF，
+    本次 `git add` 出现 52 条 `LF will be replaced by CRLF` 警告 —— **属正常，仓库内 blob 是 LF**。
+    若将来要跨平台严格一致，需加 `.gitattributes` 钉 `* text=auto eol=lf`；**本次未加**（未获授权）。
+18. **【新】`gc.auto` 未关**。skill `git-tracking-ref-stale` 记录过"`git commit` 触发的 auto-gc
+    挂住整条命令"的坑，本次**未复现**（提交正常返回），故未改配置。是否写 `gc.auto=0` 进仓库配置待 KAI 定。

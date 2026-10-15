@@ -8,6 +8,7 @@ LAST_UPDATED: 2026-10-15
 ## 当前状态指针
 
 - 阶段：正式分层目录已落地 + L0/L1 已迁入并验证；**L2–L7 与重放骨架未开始**。
+- 版本控制：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`（公开），`main` = `20f9734`。
 - 详情、待办、最近交接统一在 `notes/context/` 下，本文件不复述。
 
 ## 路由表
@@ -31,9 +32,12 @@ LAST_UPDATED: 2026-10-15
 | 会话记录该怎么写 | skill `notes-session-records` |
 | 回归是否在空转 | skill `harness-silent-pass-audit` |
 | 移植/拆文件后如何证明行为没变 | skill `code-port-fidelity-audit` |
+| `git status` 报 `[gone]` / ahead-behind 与实际不符 | skill `git-tracking-ref-stale` |
 
 ## 项目级约定（仅指针，条文不在此处）
 
 - 工程约束（文件 < 400 行、单一职能、禁止硬编码、严格分层、配置互不引用）继承用户级 `~/.workbuddy-ai/MEMORY.md`，本项目不重复。
 - 本项目的机械校验：`python -m tools.check_layering`（层级单向依赖）、`python -m tools.selfcheck`（单位 + 脱敏，9 项，含对照组与变异自测）。**均在仓库根目录执行。**
+- git 提交身份为**仓库级**：`Skioleeya` / `Skioleeya@users.noreply.github.com`（刻意不用真实邮箱，因为远端是公开仓库）。
+
 

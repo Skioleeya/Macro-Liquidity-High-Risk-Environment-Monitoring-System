@@ -13,16 +13,19 @@
 - [ ] **决定输出是否对外** —— 决定 L7 分发边界的严格程度（ICE BofA 禁止再分发）。已采纳 Gemini 的"只输出 0–100 得分、不直显 HY OAS 基点"。
 - [ ] **建 CBOE PCR 离线样例回归** —— 端点靠解析 RSC payload（**不是** `__NEXT_DATA__`），CBOE 改版即失效。已排除 Yahoo 备选（无 PCR 代码）。
 - [ ] **删除 Flip Point 相关设计** —— CBOE PCR 无行权价 / 到期日 / 持仓分布，该指标不可计算。
-- [ ] **决定 `mvp/` 去留** —— 与正式分层是同一套逻辑的两份拷贝（违反"不制造重复真相"），但它是迁移保真审计的唯一参照，且仓库无 git，删掉不可恢复。建议：先 `git init` 提交一版，再删。
-- [ ] **决定是否 `git init`** —— 目前全部产出仅存于工作区，无版本控制。这是上面那条的前置。
+- [ ] **决定 `mvp/` 去留** —— 已随首条提交进 git（可恢复），现在只剩"是否现在就 `git rm -r mvp/`"。删掉会让 `artifacts/port_fidelity.py` 变成不可运行的参照脚本；不删则正式层与它继续互为重复拷贝。**不自行删除。**
 - [ ] **补 L0 的 `clock`** —— 交易日 / 假期 / 第 N 个周五等纯日期基元。**是 L2 的前置**，L2 开工前必须补。
 - [ ] **补 L0 的 `log`** —— 架构文档第 3 节列出，尚未实现。
 - [ ] **补 `L1_接入层/sources/fed_calendar.py`** —— FOMC 日程适配器，L3 日历因子需要。
+- [ ] **可选：加 `.gitattributes`** —— 钉 `* text=auto eol=lf`，消除 `core.autocrlf=true` 带来的跨平台换行歧义。当前仓库内 blob 已是 LF，非阻塞。
+- [ ] **可选：把 `gc.auto=0` 写进仓库配置** —— 防 `git commit` 触发 auto-gc 挂住命令。本次未复现该问题。
 
 ## Stale / Needs Verification
 
 - [ ] Yahoo Finance 作为数据源 —— 非官方接口，实测已出现 429 限流。需评估是否换源或加兜底。
+- [ ] 本环境 git 建不了 `.git/refs/` 二级子目录 —— 已实测确认并绕过（`pack-refs --all`）。**未在沙箱外复跑，环境层面的根因未查明。**
 
 ## Closed in session
 
 - [x] `units_selfcheck` 改名 → `tools/selfcheck.py`（迁移时一并做掉）
+- [x] 是否 `git init` —— 已 init，远端 `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`，`main` = `20f9734`，已推送
