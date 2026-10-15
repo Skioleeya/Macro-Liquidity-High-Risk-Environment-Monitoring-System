@@ -8,9 +8,10 @@ LAST_UPDATED: 2026-10-15
 ## 当前状态指针
 
 - 阶段：正式分层目录已落地 + L0/L1 已迁入并验证；**L2–L7 与重放骨架未开始**。
-- 版本控制：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`（公开），`main` = `60ce516`。
+- 版本控制：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`（公开）。
   ⚠️ 本环境每次推进式 push 后 `origin/main` 会**静默陈旧**，`git status` 谎报 `[ahead N]` ——
-  远端其实是对的，**不要重推/不要 --force**。修法与取证见 skill `git-tracking-ref-stale`。
+  远端其实是对的，**不要重推/不要 --force**。**推送一律用 `git psh`（本机仓库 alias，已合成"推送+修引用"）**；
+  别名定义与取证见 skill `git-tracking-ref-stale` 与会话 handoff 阶段 8。
 - 详情、待办、最近交接统一在 `notes/context/` 下，本文件不复述。
 
 ## 路由表
@@ -30,7 +31,7 @@ LAST_UPDATED: 2026-10-15
 | 可运行代码（正式） | `L0_基元层/` · `L1_接入层/` |
 | 驱动 / 自检 / 分层校验 | `tools/`（非分层；`fetch_all.py` · `selfcheck.py` · `check_layering.py`） |
 | 数据源结构常量（端点 / 序列 / 单位） | `config/sources.toml` |
-| MVP 参照实现（**迁移差分用，去留待裁定**） | `mvp/` |
+| MVP 参照实现（**已裁定保留，冻结勿改**） | `mvp/` |
 | 会话记录该怎么写 | skill `notes-session-records` |
 | 回归是否在空转 | skill `harness-silent-pass-audit` |
 | 移植/拆文件后如何证明行为没变 | skill `code-port-fidelity-audit` |

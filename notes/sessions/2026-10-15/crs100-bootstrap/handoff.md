@@ -354,11 +354,53 @@ $ head -1 .git/packed-refs
 **未在沙箱外复跑，不下结论**，也不据此宣称"仓库坏了"。
 **明确区分**：修复只是**把当前值改对**，环境限制本身没被修掉。
 
-**候选缓解（均未实施，待 KAI 同意）**：
+**候选缓解（KAI 2026-10-15 已裁定，见阶段 8）**：
 - 去掉跟踪配置（`git config --unset branch.main.remote` / `--unset branch.main.merge`）——
   `git status` 从此只显示 `## main`，不再谎报；代价是失去 `git pull`/`push` 简写。
 - 把 `.git/refs/remotes` 做成 junction 指到 `.git` 外，让物理路径不再是 3 层 ——
   **未验证**，且要动 `.git` 内部结构，风险自负。
+
+### 阶段 8：三条裁定落地（KAI 2026-10-15 批准）
+
+| 裁定 | 动作 | 验证 |
+|---|---|---|
+| `mvp/` **保留不删** | 无文件改动；已写入 OPEN-RISKS #13 并声明"`mvp/` 冻结，不要改它" | — |
+| **加 alias 合成"推送 + 修引用"** | `git config alias.psh '<见下>'`（存在 `.git/config`，**不进仓库**） | 用 `git psh` 实跑一次真实推送，见下 |
+| **加 `.gitattributes` 统一换行** | 新建 `.gitattributes`：`* text=auto eol=lf` | `git add --renormalize .` 零改动 + CR 字节实测为 0 |
+
+```
+$ git config --get alias.psh
+  !f() { git push "$@" || return $?; b=$(git symbolic-ref --short HEAD); r=$(git config "branch.$b.remote");
+  if [ -z "$r" ]; then echo "psh: no upstream for $b, skip ref fix"; return 0; fi; s=$(git rev-parse HEAD);
+  mkdir -p ".git/refs/remotes/$r"; echo "$s" > ".git/refs/remotes/$r/$b"; git pack-refs --all;
+  git status --short --branch; }; f
+  → 用 git psh 代替 git push，别名自己从 branch.<b>.remote 取远端名，不硬编码 origin/main
+
+$ git check-attr text eol -- tools/selfcheck.py L0_基元层/config.py .env.example
+  tools/selfcheck.py: text: auto / eol: lf            （三个文件均如此）
+$ git add --renormalize .
+  .gitattributes | 8 ++++++++                          ← 只有它自己是改动
+  1 file changed, 8 insertions(+)
+  ⇒ 仓库内原本就是 LF，属性只是把这件事钉住
+
+$ CR 字节数 = 总字节 − 去掉 CR 后的字节（可靠测法）
+  git show :tools/selfcheck.py       CR字节=0  总字节=9680
+  git show :config/sources.toml      CR字节=0  总字节=2429
+  git show :notes/context/project_state.md  CR字节=0  总字节=1376
+  工作区 tools/selfcheck.py          CR字节=0
+  工作区 config/sources.toml         CR字节=0
+  ⇒ 仓库 blob 与工作区**都是纯 LF**
+
+$ git psh origin main        （用新别名实跑真实推送，一次验证别名 + 修引用）
+  推送成功，别名随后自动修引用并打印 git status
+  → 见下"别名实测"
+```
+
+**踩到并修正的一个假测量**：第一次我用 `grep -c $'\r'` 数含 CR 的行，结果正好等于行数
+（240 / 82 / 17），看起来像"每行都有 CR"。实际是**模式展开成了空串**，
+`grep -c ''` 会匹配每一行 —— 于是它返回的其实是行数，不是 CR 行数。
+**改用字节差法（总字节 − 去掉 CR 后的字节）才得到真值 0。**
+教训：`grep` 计数类的测量，先拿一个已知含 CR 的样本做对照，别直接信数字。
 
 
 ## VALIDATION-SUMMARY
@@ -472,13 +514,11 @@ notes/context/handoff.md
     必须在文档里显式声明这条边界，否则会拿代理的回测命中率给实盘阈值背书。
 12. **【新】阈值方案未定**：走"绝对阈值 + 滚动分位"混合，还是全量分位。
     全量分会丢失绝对水平信息、把参数问题搬到窗口长度上、且趋势 regime 下失效（详见评估文档第 4 节）。
-13. **【已推进】`mvp/` 的去留** —— 选项 A 的**前半步已完成**（阶段 7）：仓库已有 git，
-    `mvp/` 已随首条提交 `20f9734` 进入历史，**现在删掉也可从 git 恢复**。
-    剩下的裁定：是否现在就 `git rm -r mvp/` 再提交一次。
-    - 删除的代价：`artifacts/port_fidelity.py` 失去参照实现，会变成**不可运行的历史脚本**
-      （脚本已声明"mvp/ 不存在即无法对拍"）。替代证据源改为"提交点对提交点"的 `git diff`。
-    - 不删的代价：正式层与 `mvp/` 继续是同一套逻辑的两份拷贝，改一处忘另一处就会分叉。
-    - **不自行删除**，等 KAI 定。
+13. **【已裁定】`mvp/` 保留，不删**（KAI 2026-10-15 决定）。
+    理由（记下来，免得下次又提）：它是 `artifacts/port_fidelity.py` 的唯一参照实现，
+    删掉那个脚本就变成不可运行的历史文件。代价是正式层与它继续互为重复拷贝 ——
+    **已知并接受**。缓解：正式层的改动不需要同步回 `mvp/`；`mvp/` 从此**冻结**，
+    只在做迁移保真复验时才用到它。任何对 `mvp/` 的修改都意味着参照基准被污染，**不要改它**。
 14. **【新】`tools/` 目前没有层级约束**。按设计它是横向驱动/校验脚本，允许依赖任意层；
     但它同时也是唯一能"绕过 L2 直接调 L1"的地方 —— 若将来把业务计算写进 `tools/`，
     单向依赖就名存实亡。`check_layering.py` 目前**显式排除** `tools/`，这是有意为之，不是漏检。
@@ -494,11 +534,15 @@ notes/context/handoff.md
     - 排查与修复全文见 skill `git-tracking-ref-stale`；本次取证见本文件阶段 7。
     - 方法学教训：**"幂等 push 后引用还在"不是耐久性证据**（没有引用需要更新 = 空转测试）。
       必须让分支真的前进一个提交再 push。我第一轮就栽在这里。
+    - **已实施的缓解（KAI 2026-10-15 批准）**：仓库级 alias `git psh`，把"推送 + 修引用"合成一步。
+      定义（存在 `.git/config`，**不进仓库**，换机器需重建）：
+      ```
+      git config alias.psh '!f() { git push "$@" || return $?; b=$(git symbolic-ref --short HEAD); r=$(git config "branch.$b.remote"); if [ -z "$r" ]; then echo "psh: no upstream for $b, skip ref fix"; return 0; fi; s=$(git rev-parse HEAD); mkdir -p ".git/refs/remotes/$r"; echo "$s" > ".git/refs/remotes/$r/$b"; git pack-refs --all; git status --short --branch; }; f'
+      ```
+      之后用 `git psh origin main` 代替 `git push origin main`。
     - 未查明：拦截者是谁、依据什么规则。未在沙箱外复跑，不下结论。
-    - 候选缓解（**均未实施，待 KAI 定**）：① 去掉跟踪配置，`git status` 不再谎报；
-      ② 把 `.git/refs/remotes` 做 junction（**未验证**，要动 `.git` 内部结构）。
-17. **【新】`core.autocrlf=true`**（本机默认）。提交时 git 把 LF 存进仓库、检出时转 CRLF，
-    本次 `git add` 出现 52 条 `LF will be replaced by CRLF` 警告 —— **属正常，仓库内 blob 是 LF**。
-    若将来要跨平台严格一致，需加 `.gitattributes` 钉 `* text=auto eol=lf`；**本次未加**（未获授权）。
-18. **【新】`gc.auto` 未关**。skill `git-tracking-ref-stale` 记录过"`git commit` 触发的 auto-gc
+17. **【已关闭】`core.autocrlf=true`** —— 已按 KAI 2026-10-15 决定加 `.gitattributes`（`* text=auto eol=lf`）。
+    实测：仓库内 blob 与工作区文件 **CR 字节均为 0**（纯 LF），`git add --renormalize .` 零改动，
+    说明仓库本来就是 LF，属性只是把这件事钉住、消掉警告。
+18. **【仍开放】`gc.auto` 未关**。skill `git-tracking-ref-stale` 记录过"`git commit` 触发的 auto-gc
     挂住整条命令"的坑，本次**未复现**（提交正常返回），故未改配置。是否写 `gc.auto=0` 进仓库配置待 KAI 定。
