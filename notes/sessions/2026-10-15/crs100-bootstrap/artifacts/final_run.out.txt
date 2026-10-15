@@ -1,0 +1,60 @@
+### 命令 1: python -m tools.check_layering
+=== 层级单向依赖校验 ===
+  [PASS] 分析函数自测  —— 已知违规 2 条全部检出，已知合规 0 误报
+  扫描分层文件 17 个，跨层导入边：{'L1 -> L0': 5}
+  [PASS] 无同层互相 import，无反向依赖
+
+扫描 17 个文件，0 条违规
+RC=0
+
+### 命令 2: python -m tools.fetch_all
+=== CRS-100 数据拉取 @ 2026-10-15 03:46 EDT ===
+落盘目录: E:\US.market\美股宏观流动性与高风险环境日线监控系统\data\raw\2026-10-15
+
+[FRED ] PASS  walcl=6747560 USD_MILLION@2026-10-07  wtregon=880253 USD_MILLION@2026-10-07  rrpontsyd=0.201 USD_BILLION@2026-10-14  hy_oas=3.16 PERCENT@2026-10-13  usdjpy=158.34 JPY_PER_USD@2026-10-09
+[CBOE ] PASS  total=0.88 RATIO  equity=0.61 RATIO  index=1.01 RATIO  VIX=16.87 INDEX_POINT  VIX9D=14.59 INDEX_POINT  VIX3M=18.79 INDEX_POINT
+[YAHOO] PASS  ^GSPC=7718.93994140625 INDEX_POINT@2026-10-14  ^VIX=17.489999771118164 INDEX_POINT@2026-10-15  ^VIX9D=14.59000015258789 INDEX_POINT@2026-10-14  ^VIX3M=18.790000915527344 INDEX_POINT@2026-10-14  DX-Y.NYB=102.06800079345703 INDEX_POINT@2026-10-15  ^TNX=5.190000057220459 PERCENT@2026-10-14  CL=F=94.05999755859375 USD_PER_BARREL@2026-10-15
+
+结果：3/3 通过
+RC=0
+
+### 命令 3: python -m tools.selfcheck
+=== 单位自检 ===
+  [PASS] 检查器非空转自测  —— 故意做坏的用例已被正确记为 FAIL
+  [PASS] 配置声明的单位都已登记  —— 15 处声明全部已登记（共 10 个可用令牌）
+  [PASS] 族内换算与往返一致  —— 1 USD_BILLION -> 1000 USD_MILLION -> 1 USD_BILLION
+  [PASS] 跨族换算必须被拒绝  —— USD_MILLION->PERCENT、INDEX_POINT->USD_BILLION 均被拒绝
+  [PASS] 未登记单位必须被拒绝  —— 未登记令牌 USD_SQUILLION 被拒绝
+  [PASS] 配置单位 vs FRED 权威单位  —— 5 个 FRED 序列与权威 units_short 一致
+  [PASS] 白皮书净值公式的换算差异可见  —— 不换算=5,867,306.8 vs 换算后=5,867,106 USD_MILLION，差 200.8（当前占 0.0034%）
+  [PASS] net 层报错不泄漏密钥（带对照组）  —— 对照组可见 / 实测组已抹为 ***，两层差异成立
+  [PASS] 输出边界兜底擦除生效  —— 输出边界的兜底擦除生效
+
+执行 9 项检查，通过 9 项
+RC=0
+
+### 命令 4: python notes/sessions/2026-10-15/crs100-bootstrap/artifacts/port_fidelity.py
+参照实现：E:\US.market\美股宏观流动性与高风险环境日线监控系统\mvp
+移植实现：E:\US.market\美股宏观流动性与高风险环境日线监控系统
+
+A. 函数体 AST 比对
+  [PASS] 9 个模块的全部函数已逐一比对；差异 3 处，全部在白名单内：
+         - src/config.py::raw_dir() —— 根锚点改名 MVP_ROOT -> REPO_ROOT（新目录深度恰好仍是上两级）
+         - src/fetch_all.py::main() —— 面向用户的描述串与横幅去掉 'MVP' 字样
+         - src/units_selfcheck.py::_latest_raw() —— 错误提示里的命令名 src.fetch_all -> tools.fetch_all
+   模块级语句形态（仅供参考，不参与判定）：
+         [同] src/config.py -> L0_基元层/config.py
+         [同] src/units.py -> L0_基元层/units.py
+         [同] src/net.py -> L0_基元层/net.py
+         [同] src/sources/fred.py -> L1_接入层/sources/fred.py
+         [同] src/sources/cboe.py -> L1_接入层/sources/cboe.py
+         [同] src/sources/yahoo.py -> L1_接入层/sources/yahoo.py
+         [同] src/derive/net_liquidity.py -> L1_接入层/derive/net_liquidity.py
+         [同] src/fetch_all.py -> tools/fetch_all.py
+         [同] src/units_selfcheck.py -> tools/selfcheck.py
+
+B. 差分行为比对（同一输入 -> 新旧返回值逐一相等）
+  [PASS] 625 组输入的新旧返回值全部相等
+
+结论：通过 —— 结构层与行为层证据均无未申报差异
+RC=0

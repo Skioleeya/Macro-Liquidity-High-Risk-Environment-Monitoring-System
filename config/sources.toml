@@ -1,0 +1,82 @@
+# 数据源结构常量。只放"去哪取、取什么、什么单位"，不放密钥。
+# 密钥一律在仓库根的 .env；本文件与 .env 之间不得互相引用。
+#
+# unit 取值必须是 L0_基元层/units.py 已登记的令牌，写错会在 tools/selfcheck.py 里报错。
+
+[fred]
+base_url      = "https://api.stlouisfed.org/fred/series/observations"
+meta_url      = "https://api.stlouisfed.org/fred/series"
+api_key_env   = "FRED_API_KEY"
+file_type     = "json"
+sort_order    = "desc"
+default_limit = 10
+
+# FRED 自报的 units_short -> 本系统单位令牌。用于把配置与权威源对账。
+[fred.units_short_map]
+"Mil. of U.S. $"            = "USD_MILLION"
+"Bil. of US $"              = "USD_BILLION"
+"%"                         = "PERCENT"
+"Japanese Yen to  1 U.S. $" = "JPY_PER_USD"
+
+[fred.series.walcl]
+id   = "WALCL"
+unit = "USD_MILLION"
+
+[fred.series.wtregon]
+id   = "WTREGEN"
+unit = "USD_MILLION"
+
+[fred.series.rrpontsyd]
+id   = "RRPONTSYD"
+unit = "USD_BILLION"
+
+[fred.series.hy_oas]
+id   = "BAMLH0A0HYM2"
+unit = "PERCENT"
+
+[fred.series.usdjpy]
+id   = "DEXJPUS"
+unit = "JPY_PER_USD"
+
+[cboe]
+daily_stats_url = "https://www.cboe.com/us/options/market_statistics/daily/"
+index_csv_base  = "https://cdn.cboe.com/api/global/us_indices/daily_prices/"
+index_csv_unit  = "INDEX_POINT"
+index_csv_files = ["VIX_History.csv", "VIX9D_History.csv", "VIX3M_History.csv"]
+
+[cboe.ratios]
+unit = "RATIO"
+
+[cboe.ratios.labels]
+total  = "TOTAL PUT/CALL RATIO"
+equity = "EQUITY PUT/CALL RATIO"
+index  = "INDEX PUT/CALL RATIO"
+
+[yahoo]
+chart_url = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+range     = "5d"
+interval  = "1d"
+
+# ^TNX 实测与 FRED DGS10 同值（比值 1.000，9 个交易日对齐），
+# 报的是百分数本身，不是老式 ×10 口径。
+[yahoo.symbols]
+"^GSPC"    = { unit = "INDEX_POINT" }
+"^VIX"     = { unit = "INDEX_POINT" }
+"^VIX9D"   = { unit = "INDEX_POINT" }
+"^VIX3M"   = { unit = "INDEX_POINT" }
+"DX-Y.NYB" = { unit = "INDEX_POINT" }
+"^TNX"     = { unit = "PERCENT" }
+"CL=F"     = { unit = "USD_PER_BARREL" }
+
+[http]
+timeout_seconds = 30
+user_agent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+[output]
+raw_dir = "data/raw"
+
+[units]
+# 净值流动性的目标单位（唯一真值）。
+# 白皮书原文把 WALCL/WTREGEN（百万）与 RRPONTSYD（十亿）直接相减，
+# 此处强制统一到本目标单位后再运算。
+net_liquidity_target = "USD_MILLION"
