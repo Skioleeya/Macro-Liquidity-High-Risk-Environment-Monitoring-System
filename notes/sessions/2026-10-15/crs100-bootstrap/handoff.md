@@ -299,27 +299,66 @@ $ git status --short --branch
   ## main...origin/main                                     ← 无 ahead/behind，修复生效
 ```
 
-**耐久性实测**（这一条纠正了 skill 原文的过度悲观表述）：
+**耐久性实测 —— 第一轮结论被推翻，第二轮才是对的**（这是本阶段最值得记的一条）：
 
 ```
+【第一轮：空转测试，结论错误】
 $ git -c gc.auto=0 fetch origin        → RC=0
-  origin/main -> 20f9734c...            ← 存活
+  origin/main -> 20f9734c...            ← "存活"
 $ git -c gc.auto=0 push origin main    → Everything up-to-date
-  origin/main -> 20f9734c...            ← 存活
+  origin/main -> 20f9734c...            ← "存活"
+⇒ 当时写成"pack-refs 之后就不会再失效"。**错的。**
+
+【为什么错】`Everything up-to-date` 意味着**没有任何引用需要更新**，
+  所以根本没触发那条 3 层写入 —— 这是个空转测试，不是耐久性证据。
+
+【第二轮：让分支真的前进一个提交，再 push】
+$ git commit  → HEAD = 60ce516
+$ git push origin main
+    20f9734..60ce516  main -> main        → RC=0，远端确实更新了
 $ 三方核对
-  HEAD        20f9734c68c6eb8aa7831d633e27d1f8c0078461
-  ls-remote   20f9734c68c6eb8aa7831d633e27d1f8c0078461
-  origin/main 20f9734c68c6eb8aa7831d633e27d1f8c0078461
-  git status  ## main...origin/main
+  HEAD        60ce516a9a0ec3f9018f17ecdc89a74a397229c5
+  ls-remote   60ce516a9a0ec3f9018f17ecdc89a74a397229c5   ← 远端是好的
+  origin/main 20f9734c68c6eb8aa7831d633e27d1f8c0078461   ← **陈旧**
+  git status  ## main...origin/main [ahead 1]            ← 谎报
+⇒ 推进式 push 会让跟踪引用再次陈旧。修复**不是根治**。
+$ 重跑修复 → origin/main = 60ce516，git status 恢复 ## main...origin/main
 ```
 
-⇒ **只写松散引用会被下次 push/fetch 删掉；走完 `pack-refs --all` 就不会。**
-`find .git/refs -type f` 返回空是正常的（引用全在 `packed-refs` 里），不是丢失。
+**根因收窄为一条路径层数规则**（实跑对照）：
 
-**未查明**：本环境为何拦 git 建 `.git/refs/` 下的二级子目录 —— 只能归因到运行环境
-（沙箱/受管运行时），**未在沙箱外复跑，不下结论**。
-**明确区分**：`pack-refs --all` 是**根治这一步**；本环境对 git 的这条限制本身没被修掉，
-只是绕开了。若将来又在**新仓库**里见到 `[gone]`，重跑上面的修复即可。
+```
+  层数=2  [落盘 OK]   refs/heads/zzz
+  层数=2  [落盘 OK]   refs/xyz/aaa            ← git 自己新建目录也行
+  层数=2  [落盘 OK]   refs/remotes/aaa
+  层数=3  [被吞!!]    refs/remotes/origin/ccc      ← 跟踪引用就在这一层
+  层数=4  [被吞!!]    refs/remotes/origin/deep/ddd
+```
+
+关键补充实验：**提前用 bash 建好 `.git/refs/remotes/origin/` 也一样失败**。
+⇒ 判据是**层数**，不是"git 建不了目录"。`refs/heads/main` 只有 2 层，所以分支一直正常
+—— 这正好解释了"commit 成功、只有远端跟踪引用坏掉"。
+
+**修复（每次推进式 push 之后都要重跑一次）**：
+
+```
+$ SHA=$(git rev-parse HEAD)
+$ mkdir -p .git/refs/remotes/origin
+$ printf '%s\n' "$SHA" > .git/refs/remotes/origin/main
+$ git pack-refs --all
+$ head -1 .git/packed-refs
+  # pack-refs with: peeled fully-peeled sorted
+```
+
+**未查明**：这个拦截是谁做的、依据什么规则（沙箱/受管运行时的哪一层）。
+**未在沙箱外复跑，不下结论**，也不据此宣称"仓库坏了"。
+**明确区分**：修复只是**把当前值改对**，环境限制本身没被修掉。
+
+**候选缓解（均未实施，待 KAI 同意）**：
+- 去掉跟踪配置（`git config --unset branch.main.remote` / `--unset branch.main.merge`）——
+  `git status` 从此只显示 `## main`，不再谎报；代价是失去 `git pull`/`push` 简写。
+- 把 `.git/refs/remotes` 做成 junction 指到 `.git` 外，让物理路径不再是 3 层 ——
+  **未验证**，且要动 `.git` 内部结构，风险自负。
 
 
 ## VALIDATION-SUMMARY
@@ -354,7 +393,13 @@ $ 三方核对
 - `git push -u origin main` → RC=0，`* [new branch] main -> main`
 - 提交后复验 `git ls-files | grep -E "\.env$|^data/"` → 无命中 ⇒ **密钥确认未进仓库**
 - git 跟踪引用修复 → `git status` 从 `[gone]` 变为 `## main...origin/main`
-- 修复耐久性 → 后续 `fetch` + 幂等 `push`（`Everything up-to-date`）后 `origin/main` 仍正确；三方 SHA 相等
+- 修复耐久性（**第一轮结论错误，已由第二轮推翻**）：
+  - 第一轮用幂等 `push`（`Everything up-to-date`）当证据 ⇒ **空转测试，不算数**
+  - 第二轮让分支真的前进一个提交（`20f9734..60ce516`）后 push ⇒ `origin/main` 再次陈旧、`[ahead 1]`
+    ⇒ **修复不是根治，每次推进式 push 后须重跑**
+- 根因收窄：`.git/refs/` 下 **≤2 层可写、≥3 层被静默吞掉**（层数决定，与名字无关；
+  提前建好父目录也失败 ⇒ 不是"建不了目录"）
+- 第二条提交 `60ce516` 已推送；推送后已重跑修复，三方 SHA 恢复相等
 
 ## 追加工作流：外部建议评估（同日，同一会话）
 
@@ -439,11 +484,19 @@ notes/context/handoff.md
     单向依赖就名存实亡。`check_layering.py` 目前**显式排除** `tools/`，这是有意为之，不是漏检。
 15. **【新】L0 仍缺 `clock` / `log`**（架构文档第 3 节列出）。本阶段只迁移 MVP 已有逻辑，
     **没有**顺手实现未完成的东西 —— 时间基元（交易日/假期/第 N 个周五）是 L2 的前置，需在 L2 开工前补。
-16. **【新】本环境的 git 建不了 `.git/refs/` 下的二级子目录**（实测：一层全成功、二层全被吞）。
-    后果是**每个新仓库的首次 `push -u` 都会静默丢掉跟踪引用**（`[gone]`），
-    `git status` 从此说谎。已在本次修复并用 `pack-refs --all` 验证耐久，但**环境限制本身没被修掉**。
-    下次在新仓库里见到 `[gone]`，直接重跑修复流程，不要怀疑"没推上去"。
-    排查与修复全文见 skill `git-tracking-ref-stale`。
+16. **【新·最高优先级的日常坑】本环境的 git 写不了 `.git/refs/` 下第 3 层及更深的路径**
+    （实测：2 层全成功、3/4 层全被静默吞掉；提前建好父目录也一样失败）。
+    后果：**每次推进式 push 都会让 `origin/main` 静默陈旧**，`git status` 谎报 `[ahead N]`，
+    而远端其实是对的。已在本次定位并修复，但**修复不是根治，每次 push 后都要重跑**。
+    - 症状：`git status` 与 `git ls-remote` 互相矛盾，或 `git rev-parse origin/main` 报
+      `fatal: ambiguous argument`。
+    - **不要**因此重推、更**不要** `--force` —— 远端本来就是好的。
+    - 排查与修复全文见 skill `git-tracking-ref-stale`；本次取证见本文件阶段 7。
+    - 方法学教训：**"幂等 push 后引用还在"不是耐久性证据**（没有引用需要更新 = 空转测试）。
+      必须让分支真的前进一个提交再 push。我第一轮就栽在这里。
+    - 未查明：拦截者是谁、依据什么规则。未在沙箱外复跑，不下结论。
+    - 候选缓解（**均未实施，待 KAI 定**）：① 去掉跟踪配置，`git status` 不再谎报；
+      ② 把 `.git/refs/remotes` 做 junction（**未验证**，要动 `.git` 内部结构）。
 17. **【新】`core.autocrlf=true`**（本机默认）。提交时 git 把 LF 存进仓库、检出时转 CRLF，
     本次 `git add` 出现 52 条 `LF will be replaced by CRLF` 警告 —— **属正常，仓库内 blob 是 LF**。
     若将来要跨平台严格一致，需加 `.gitattributes` 钉 `* text=auto eol=lf`；**本次未加**（未获授权）。

@@ -19,11 +19,12 @@
 - [ ] **补 `L1_接入层/sources/fed_calendar.py`** —— FOMC 日程适配器，L3 日历因子需要。
 - [ ] **可选：加 `.gitattributes`** —— 钉 `* text=auto eol=lf`，消除 `core.autocrlf=true` 带来的跨平台换行歧义。当前仓库内 blob 已是 LF，非阻塞。
 - [ ] **可选：把 `gc.auto=0` 写进仓库配置** —— 防 `git commit` 触发 auto-gc 挂住命令。本次未复现该问题。
+- [ ] **可选：缓解 git 跟踪引用反复失效** —— 每次推进式 push 后 `origin/main` 都会静默陈旧。① 去掉跟踪配置让 `git status` 不再谎报；② `.git/refs/remotes` 做 junction（未验证）。**均需 KAI 同意，未实施。**
 
 ## Stale / Needs Verification
 
 - [ ] Yahoo Finance 作为数据源 —— 非官方接口，实测已出现 429 限流。需评估是否换源或加兜底。
-- [ ] 本环境 git 建不了 `.git/refs/` 二级子目录 —— 已实测确认并绕过（`pack-refs --all`）。**未在沙箱外复跑，环境层面的根因未查明。**
+- [ ] 本环境 git 写不了 `.git/refs/` 下第 3 层及更深的路径 —— 已实测确认（≤2 层可写、≥3 层被静默吞掉，提前建父目录也失败），并已修复当前值。**但修复不是根治，每次推进式 push 后须重跑；拦截者是谁未查明，未在沙箱外复跑。**
 
 ## Closed in session
 

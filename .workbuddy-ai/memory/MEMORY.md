@@ -8,7 +8,9 @@ LAST_UPDATED: 2026-10-15
 ## 当前状态指针
 
 - 阶段：正式分层目录已落地 + L0/L1 已迁入并验证；**L2–L7 与重放骨架未开始**。
-- 版本控制：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`（公开），`main` = `20f9734`。
+- 版本控制：`origin` = `git@github.com:Skioleeya/Macro-Liquidity-High-Risk-Environment-Monitoring-System.git`（公开），`main` = `60ce516`。
+  ⚠️ 本环境每次推进式 push 后 `origin/main` 会**静默陈旧**，`git status` 谎报 `[ahead N]` ——
+  远端其实是对的，**不要重推/不要 --force**。修法与取证见 skill `git-tracking-ref-stale`。
 - 详情、待办、最近交接统一在 `notes/context/` 下，本文件不复述。
 
 ## 路由表
